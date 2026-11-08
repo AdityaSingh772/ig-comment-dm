@@ -1,0 +1,26 @@
+name: refresh-token
+
+# Instagram long-lived tokens last ~60 days. This renews it every week
+# and saves the new one back into the repo secret.
+on:
+  schedule:
+    - cron: "17 3 * * 1"     # Mondays 03:17 UTC
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Refresh and store token
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}   # fine-grained PAT: this repo only, Secrets read/write
+        run: |
+          NEW=$(python ig_comment_dm.py refresh)
+          echo "::add-mask::$NEW"
+          gh secret set IG_ACCESS_TOKEN --body "$NEW" --repo "$GITHUB_REPOSITORY"

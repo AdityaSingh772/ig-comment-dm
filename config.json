@@ -1,0 +1,18 @@
+{
+  "campaigns": [
+    {
+      "name": "ai talk ep 1: self-test",
+      "active": false,
+      "reel_url": "https://www.instagram.com/reel/PASTE_EP1_SHORTCODE/",
+      "keyword": "TEST",
+      "message": "Hey! Here's the self-test from the reel: PASTE_DRIVE_LINK\n\nTakes about 10 minutes. Start with any task that gets a C and a No. Ep 2 is coming soon, so follow if you want it."
+    },
+    {
+      "name": "ai talk ep 2: time sheet",
+      "active": false,
+      "reel_url": "https://www.instagram.com/reel/PASTE_EP2_SHORTCODE/",
+      "keyword": "TIME",
+      "message": "Hey! Here's the time sheet from the reel: PASTE_LINK\n\nAnd the study: https://arxiv.org/abs/2507.09089"
+    }
+  ]
+}

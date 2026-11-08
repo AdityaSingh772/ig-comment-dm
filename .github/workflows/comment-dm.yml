@@ -1,0 +1,34 @@
+name: comment-dm
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"    # every 5 min, GitHub's minimum (often runs a few minutes late)
+  workflow_dispatch: {}       # "Run workflow" button for testing
+
+concurrency:
+  group: comment-dm           # never two runs at once (prevents double DMs)
+  cancel-in-progress: false
+
+permissions:
+  contents: write             # to commit state.json (who already got the DM)
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Send DMs
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+        run: python ig_comment_dm.py run
+      - name: Save state
+        if: always()
+        run: |
+          git config user.name "comment-dm-bot"
+          git config user.email "comment-dm-bot@users.noreply.github.com"
+          git add state.json
+          git diff --cached --quiet || (git commit -m "state: update replied comments" && git pull --rebase && git push)

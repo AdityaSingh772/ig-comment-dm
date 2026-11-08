@@ -1,0 +1,48 @@
+name: burst-10s
+
+# Start this by hand right after you post a reel (Actions -> burst-10s -> Run workflow).
+# It checks comments every 10 seconds for up to 5.5 hours (GitHub's job limit is 6h).
+# Run it again if the reel is still getting lots of comments.
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "How long to watch (max 5.5)"
+        default: "5"
+        required: true
+      every:
+        description: "Seconds between checks (min 5)"
+        default: "10"
+        required: true
+
+concurrency:
+  group: comment-dm           # shared with the 5-min job: they never run at the same time
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Watch comments
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          HOURS: ${{ inputs.hours }}
+          EVERY: ${{ inputs.every }}
+        run: |
+          H=$(python -c "import os;print(min(float(os.environ['HOURS']),5.5))")
+          python ig_comment_dm.py watch --every "$EVERY" --hours "$H"
+      - name: Save state
+        if: always()
+        run: |
+          git config user.name "comment-dm-bot"
+          git config user.email "comment-dm-bot@users.noreply.github.com"
+          git add state.json
+          git diff --cached --quiet || (git commit -m "state: update replied comments" && git pull --rebase && git push)
