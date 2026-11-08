@@ -12,6 +12,7 @@ the older Instagram Login (host graph.instagram.com, 60-day tokens).
   GET  /<ig-user-id>/media            find the reel from its URL
   GET  /<media-id>/comments           read comments (50 per page, newest first)
   POST /<ig-user-id>/messages         private reply: {"recipient":{"comment_id":..}}
+  POST /<comment-id>/replies          optional public reply ("sent, check your DMs")
   GET  /refresh_access_token          extend the 60-day token (instagram login only)
 Rules from Meta: one private reply per comment, within 7 days of the comment.
 It lands in their Inbox if they follow you, otherwise in their Requests folder.
@@ -234,7 +235,8 @@ def run(api, dry_run=False, now=None, sleep=time.sleep, me=None, quiet=False):
         for c in todo:
             text = camp["message"]
             if dry_run:
-                print(f"  DRY RUN would reply to comment {c['id']} ({c.get('timestamp')})")
+                extra = " + public reply" if camp.get("comment_replies") else ""
+                print(f"  DRY RUN would reply to comment {c['id']} ({c.get('timestamp')}){extra}")
                 continue
             try:
                 api.post(f"{ig_id}/messages",
@@ -252,12 +254,30 @@ def run(api, dry_run=False, now=None, sleep=time.sleep, me=None, quiet=False):
                     save_state(state)
                     raise
             save_state(state)  # save after every send, so a crash never double-sends
+            if done.get(c["id"], "").startswith("error:"):
+                pass
+            elif camp.get("comment_replies"):
+                public_reply(api, c["id"], camp["comment_replies"])
             sleep(1.5)  # be gentle with rate limits
     if not dry_run:
         save_state(state)
     if sent or skipped or not quiet:
         print(f"done: {sent} sent, {skipped} skipped")
     return sent, skipped
+
+
+def public_reply(api, comment_id, options):
+    """Reply under the comment, only after the DM went out. Rotates through the
+    options so Instagram doesn't see the same text hundreds of times. A failed
+    public reply never undoes or repeats the DM."""
+    text = options[int(re.sub(r"\D", "", comment_id) or 0) % len(options)]
+    try:
+        api.post(f"{comment_id}/replies", {"message": text})
+        print(f"  replied publicly: {text!r}")
+    except ApiError as e:
+        if is_auth_error(e):
+            raise
+        print(f"  public reply failed (DM was still sent): {e.body[:200]}")
 
 
 RATE_LIMIT_CODES = {4, 17, 32, 613}  # Meta's "too many calls" error codes

@@ -172,3 +172,57 @@ class UnifiedAccount(unittest.TestCase):
         self.assertEqual(api.account(), {"id": "1784", "username": "ft.adityas"})
         self.assertEqual(calls, ["me/assigned_instagram_accounts"])
         self.assertEqual(m.HOST, "https://graph.facebook.com")
+
+
+class PublicReply(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old = (m.CONFIG_PATH, m.STATE_PATH)
+        m.CONFIG_PATH = Path(self.tmp.name) / "config.json"
+        m.STATE_PATH = Path(self.tmp.name) / "state.json"
+    def tearDown(self):
+        m.CONFIG_PATH, m.STATE_PATH = self.old
+        self.tmp.cleanup()
+
+    def _api(self, reply_fails=False):
+        test = self
+        class Api(FakeApi):
+            def post(s, path, payload):
+                if path.endswith("/replies"):
+                    s.sent.append(("reply", path, payload["message"]))
+                    if reply_fails:
+                        raise m.ApiError(400, '{"error":{"code":100}}')
+                    return {"id": "r"}
+                return FakeApi.post(s, path, payload)
+        pages = [{"data": [{"id": "c7", "text": "TEST pls", "timestamp": ts(1), "username": "a"}]}]
+        return Api(pages)
+
+    def _config(self, replies):
+        camp = {"active": True, "reel_url": "https://www.instagram.com/reel/ABC/",
+                "keyword": "TEST", "message": "link"}
+        if replies:
+            camp["comment_replies"] = replies
+        m.CONFIG_PATH.write_text(json.dumps({"campaigns": [camp]}))
+
+    def test_replies_publicly_after_dm(self):
+        self._config(["sent, check your DMs"])
+        api = self._api()
+        m.run(api, now=NOW, sleep=lambda s: None)
+        replies = [x for x in api.sent if isinstance(x, tuple) and x[0] == "reply"]
+        self.assertEqual(replies, [("reply", "c7/replies", "sent, check your DMs")])
+        # second run: no second DM, no second reply
+        m.run(api, now=NOW, sleep=lambda s: None)
+        self.assertEqual(len([x for x in api.sent if isinstance(x, tuple)]), 1)
+
+    def test_failed_reply_keeps_dm_marked_done(self):
+        self._config(["sent"])
+        api = self._api(reply_fails=True)
+        sent, _ = m.run(api, now=NOW, sleep=lambda s: None)
+        self.assertEqual(sent, 1)
+        self.assertIn("c7", json.loads(m.STATE_PATH.read_text())["replied"]["M1"])
+
+    def test_no_reply_when_not_configured(self):
+        self._config(None)
+        api = self._api()
+        m.run(api, now=NOW, sleep=lambda s: None)
+        self.assertFalse([x for x in api.sent if isinstance(x, tuple)])

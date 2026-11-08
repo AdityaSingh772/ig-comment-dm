@@ -29,7 +29,7 @@ Meta no longer offers "API setup with Instagram login" to new apps. New apps get
 6. **Generate token**, log in, select your Instagram account. Copy the token: it's shown only once. **Don't paste it into chats or any file you commit.**
 7. Skip **3. Configure webhooks** and **4. Complete App Review**.
 
-The token never expires (unless you remove the app or move the Instagram account to another portfolio), so there's nothing to renew. The app stays in Development mode with Standard Access. **Not yet confirmed:** whether that's enough to DM commenters who have no role on the app; Meta's docs say Standard Access is "enough to test with people who have a role on your app". Test with a second account that is *not* a tester. If that DM fails, the next step is App Review for Advanced Access; stop and check before submitting anything.
+The token never expires (unless you remove the app or move the Instagram account to another portfolio), so there's nothing to renew. The app stays in Development mode with Standard Access. **Confirmed Nov 9 2026:** that's enough to DM commenters who have no role on the app (tested with a non-tester account). If it ever stops working, the next step is App Review for Advanced Access; stop and check before submitting anything.
 
 ### 3. Test on your Mac first
 ```bash
@@ -89,6 +89,11 @@ While a burst runs, the 5-minute job waits its turn (they share a lock), so the 
 **Fair-use note:** GitHub's terms say Actions is for building and running software projects, not for use as an always-on server. A short burst you start by hand after posting, plus a 5-minute schedule, is ordinary bot use. Running bursts back to back around the clock is the kind of use that could get the repo flagged. Use bursts only for the first hours after a post.
 
 Why not instant webhooks? Meta only sends comment webhooks to apps that are **Live, with Advanced Access and business verification** (Webhooks setup docs, Oct 2026). That needs App Review, which is overkill for one account.
+
+## Public "sent, check your dm" reply
+Each campaign can have `comment_replies`: after the DM goes out, the script replies under the comment with one of these texts (rotating, so Instagram doesn't see the same reply hundreds of times). No reply is posted if the DM fails, and a failed reply never causes a second DM. Leave `comment_replies` out of a campaign to turn it off.
+
+Tested live on Nov 9 2026: DM and public reply both worked for a commenter who is not an Instagram Tester, with the app still in Development mode.
 
 ## Every new reel
 Add a campaign in `config.json` (copy the ep 2 block), set `"active": true`, put in the reel URL, keyword and message, and push. Then start a burst. Set old campaigns to `"active": false` after 7 days, because replies aren't allowed after that anyway (and it saves API calls).
