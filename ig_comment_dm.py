@@ -4,11 +4,15 @@
 Someone comments a keyword (e.g. TEST) on a reel -> they get one private reply
 with your link. Runs on a schedule (GitHub Actions); no server needed.
 
-Official endpoints used (Instagram API with Instagram Login, host graph.instagram.com):
-  GET  /me/media                      find the reel from its URL
+Official endpoints used. Default is the Instagram API with Unified Login
+(host graph.facebook.com, the only option Meta gives new apps since 2026; its
+system-user token can be set to never expire). IG_LOGIN=instagram switches to
+the older Instagram Login (host graph.instagram.com, 60-day tokens).
+  GET  /me/assigned_instagram_accounts  your Instagram account ID (unified)
+  GET  /<ig-user-id>/media            find the reel from its URL
   GET  /<media-id>/comments           read comments (50 per page, newest first)
   POST /<ig-user-id>/messages         private reply: {"recipient":{"comment_id":..}}
-  GET  /refresh_access_token          extend the 60-day token
+  GET  /refresh_access_token          extend the 60-day token (instagram login only)
 Rules from Meta: one private reply per comment, within 7 days of the comment.
 It lands in their Inbox if they follow you, otherwise in their Requests folder.
 
@@ -16,6 +20,8 @@ Env:
   IG_ACCESS_TOKEN   required. Never commit it.
   DRY_RUN=1         print what would be sent, send nothing.
   IG_API_VERSION    default v27.0
+  IG_LOGIN          unified (default) or instagram
+  IG_USER_ID        optional: which Instagram account, if the token covers several
 Commands:
   python ig_comment_dm.py run        process all campaigns in config.json once
   python ig_comment_dm.py watch [--every 10] [--hours 48]
@@ -39,7 +45,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CONFIG_PATH = HERE / "config.json"
 STATE_PATH = HERE / "state.json"
-HOST = "https://graph.instagram.com"
+LOGIN = os.environ.get("IG_LOGIN", "unified").strip().lower()
+HOST = "https://graph.instagram.com" if LOGIN == "instagram" else "https://graph.facebook.com"
 VERSION = os.environ.get("IG_API_VERSION", "v27.0")
 REPLY_WINDOW = timedelta(days=7)
 SAFETY_MARGIN = timedelta(hours=1)  # don't try at 6d 23h 59m
@@ -91,6 +98,24 @@ class Api:
 
     def post(self, path, payload):
         return self._request("POST", f"{HOST}/{VERSION}/{path}", payload)
+
+    def account(self):
+        """Your Instagram account as {"id", "username"}."""
+        if LOGIN == "instagram":
+            me = self.get("me", {"fields": "user_id,username,account_type"})
+            return {"id": me.get("user_id") or me.get("id"), "username": me.get("username", "")}
+        # Unified login: /me is a system user, so ask which Instagram accounts it can use.
+        accts = self.get("me/assigned_instagram_accounts", {"fields": "id,username"}).get("data", [])
+        want = os.environ.get("IG_USER_ID")
+        if want:
+            accts = [a for a in accts if a.get("id") == want]
+        if not accts:
+            raise SystemExit("This token can't see any Instagram account. Re-generate it "
+                             "and make sure your Instagram account is selected.")
+        if len(accts) > 1:
+            print("token covers several accounts, using the first; set IG_USER_ID to choose: "
+                  + ", ".join(f"{a['id']} (@{a.get('username')})" for a in accts), file=sys.stderr)
+        return {"id": accts[0]["id"], "username": accts[0].get("username", "")}
 
     def refresh(self):
         url = f"{HOST}/refresh_access_token?" + urllib.parse.urlencode(
@@ -151,11 +176,11 @@ def save_state(state):
     STATE_PATH.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
 
 
-def find_media_id(api, reel_url):
+def find_media_id(api, reel_url, ig_id):
     want = shortcode(reel_url)
     if not want:
         raise SystemExit(f"Can't read a reel shortcode from {reel_url!r}")
-    page = api.get("me/media", {"fields": "id,permalink,timestamp", "limit": 50})
+    page = api.get(f"{ig_id}/media", {"fields": "id,permalink,timestamp", "limit": 50})
     for _ in range(5):  # last ~250 posts
         for m in page.get("data", []):
             if shortcode(m.get("permalink")) == want:
@@ -190,8 +215,8 @@ def run(api, dry_run=False, now=None, sleep=time.sleep, me=None, quiet=False):
     if not config:
         raise SystemExit("config.json missing")
     state = load_json(STATE_PATH, {"replied": {}, "media_ids": {}})
-    me = me or api.get("me", {"fields": "user_id,username"})
-    ig_id = me.get("user_id") or me.get("id")
+    me = me or api.account()
+    ig_id = me["id"]
     username = me.get("username", "")
 
     sent = skipped = 0
@@ -199,7 +224,7 @@ def run(api, dry_run=False, now=None, sleep=time.sleep, me=None, quiet=False):
         if not camp.get("active", True):
             continue
         url, kw = camp["reel_url"], camp["keyword"]
-        media_id = state["media_ids"].get(url) or find_media_id(api, url)
+        media_id = state["media_ids"].get(url) or find_media_id(api, url, ig_id)
         state["media_ids"][url] = media_id
         done = state["replied"].setdefault(media_id, {})
         todo = pick_comments_to_answer(fetch_recent_comments(api, media_id, now),
@@ -246,7 +271,7 @@ def watch(api, every=10, hours=48, dry_run=False, sleep=time.sleep, clock=time.m
           max_loops=None):
     """Check every `every` seconds for `hours` hours. Survives network blips and
     backs off when Instagram says we're calling too often."""
-    me = api.get("me", {"fields": "user_id,username"})
+    me = api.account()
     print(f"watching as @{me.get('username')} every {every}s for {hours}h (Ctrl+C to stop)")
     end = clock() + hours * 3600
     backoff = 0
@@ -302,11 +327,13 @@ def main():
         raise SystemExit("Set IG_ACCESS_TOKEN (never commit it).")
     api = Api(token)
     if cmd == "whoami":
-        print(api.get("me", {"fields": "user_id,username,account_type"}))
+        print(api.account())
     elif cmd == "media":
-        for m in api.get("me/media", {"fields": "id,permalink,timestamp,caption", "limit": 15}).get("data", []):
+        for m in api.get(f"{api.account()['id']}/media", {"fields": "id,permalink,timestamp,caption", "limit": 15}).get("data", []):
             print(m["id"], m.get("timestamp"), m.get("permalink"), (m.get("caption") or "")[:40].replace("\n", " "))
     elif cmd == "refresh":
+        if LOGIN != "instagram":
+            raise SystemExit("Unified-login tokens don't use this refresh; nothing to do.")
         r = api.refresh()
         days = int(r.get("expires_in", 0)) // 86400
         print(r["access_token"])

@@ -44,10 +44,10 @@ class FakeApi:
         self.pages = comments_pages
         self.fail_ids = set(fail_ids)
         self.sent = []
+    def account(self):
+        return {"id": "999", "username": "me"}
     def get(self, path, params=None):
-        if path == "me":
-            return {"user_id": "999", "username": "me"}
-        if path == "me/media":
+        if path == "999/media":
             return {"data": [{"id": "M1", "permalink": "https://www.instagram.com/reel/ABC/"}]}
         if path == "M1/comments":
             return self.pages[0]
@@ -159,3 +159,16 @@ class Watch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnifiedAccount(unittest.TestCase):
+    def test_reads_ig_account_from_assigned_accounts(self):
+        api = m.Api("x")
+        calls = []
+        def fake_get(path, params=None):
+            calls.append(path)
+            return {"data": [{"id": "1784", "username": "ft.adityas"}]}
+        api.get = fake_get
+        self.assertEqual(api.account(), {"id": "1784", "username": "ft.adityas"})
+        self.assertEqual(calls, ["me/assigned_instagram_accounts"])
+        self.assertEqual(m.HOST, "https://graph.facebook.com")

@@ -1,10 +1,9 @@
 name: refresh-token
 
-# Instagram long-lived tokens last ~60 days. This renews it every week
-# and saves the new one back into the repo secret.
+# Only for the older Instagram Login (IG_LOGIN=instagram, 60-day tokens).
+# The default Unified Login token is set to never expire, so the weekly
+# schedule is off. Run by hand only if you switch back to Instagram Login.
 on:
-  schedule:
-    - cron: "17 3 * * 1"     # Mondays 03:17 UTC
   workflow_dispatch: {}
 
 jobs:

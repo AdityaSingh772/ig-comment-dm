@@ -1,6 +1,6 @@
 # ig-comment-dm
 
-Free "comment TEST and I'll DM you" for your own reels, using Instagram's official API (the same API ManyChat uses). It runs entirely on GitHub Actions: every 10 seconds right after you post (burst mode), and every 5 minutes the rest of the time. Anyone who wrote the keyword gets one private reply with your link, and nobody gets it twice.
+Free "comment TEST and I'll DM you" for your own reels, using Instagram's official API (Meta's Instagram API). It runs entirely on GitHub Actions: every 10 seconds right after you post (burst mode), and every 5 minutes the rest of the time. Anyone who wrote the keyword gets one private reply with your link, and nobody gets it twice.
 
 How it behaves (Meta's rules, from the Private Replies docs, checked Nov 8 2026):
 - One private reply per comment, sent within 7 days of the comment.
@@ -18,17 +18,18 @@ Cost: free, **as long as the repo is public**. Actions minutes are unlimited on 
 1. In the Instagram app: Settings → Account type and tools → **Switch to professional account** → Creator. (Skip this if it's already professional.)
 2. Settings → Messages and story replies → Message controls → Connected tools → turn on **Allow access to messages**. Without this the API can't send DMs.
 
-### 2. Meta developer app
-1. Go to developers.facebook.com and log in. Register as a developer if it asks.
-2. **My Apps → Create app.** Pick the use case for managing messaging and content on Instagram (the wording changes; it's the Instagram API one). Choose **Business** if it asks for a type.
-3. In the app dashboard, open **Instagram → API setup with Instagram login**.
-4. Under **Generate access tokens**, add your Instagram account and log in with it. Approve these permissions:
-   - `instagram_business_basic`
-   - `instagram_business_manage_comments`
-   - `instagram_business_manage_messages`
-5. Copy the token it gives you. **Don't paste it into chats, Discord, or any file you commit.**
+### 2. Meta developer app (Unified login, checked Nov 9 2026)
+Meta no longer offers "API setup with Instagram login" to new apps. New apps get **API setup with Unified login**, which is built on Facebook Login for Business and uses host graph.facebook.com. The script defaults to this (`IG_LOGIN=unified`).
 
-The app can stay in Development mode. That's enough for your own account, which has a role on the app. If Meta asks for App Review or Advanced Access, stop and check before submitting anything.
+1. Log in at business.facebook.com/business/loginpage/?next=https://developers.facebook.com/ with Facebook. Click **Get Started** on developers.facebook.com to register as a developer if you haven't.
+2. **My Apps → Create app** → use case **Manage messaging & content on Instagram** → "I don't want to connect a business portfolio yet" → Create app.
+3. **Use cases → Customize → API setup with Unified login.** It needs a **business portfolio** (free, no company needed): click + Business portfolio and create one. Skip business verification.
+4. **1. Configure your app → Create new configuration.** Keep Expiration **Never** (system-user token). You can untick `ads_management`, `ads_read` and `instagram_content_publish`; keep `instagram_basic`, `instagram_manage_messages` and `instagram_manage_comments`. Select **Use this configuration**. For the redirect URL, any HTTPS page you control works, e.g. this repo's GitHub URL; the script never uses the login flow.
+5. **2. Generate access tokens → Add account.** This invites your Instagram account as an **Instagram Tester**. Accept it on instagram.com (web): Settings → Website permissions → Apps and websites → **Tester invites**.
+6. **Generate token**, log in, select your Instagram account. Copy the token: it's shown only once. **Don't paste it into chats or any file you commit.**
+7. Skip **3. Configure webhooks** and **4. Complete App Review**.
+
+The token never expires (unless you remove the app or move the Instagram account to another portfolio), so there's nothing to renew. The app stays in Development mode with Standard Access. **Not yet confirmed:** whether that's enough to DM commenters who have no role on the app; Meta's docs say Standard Access is "enough to test with people who have a role on your app". Test with a second account that is *not* a tester. If that DM fails, the next step is App Review for Advanced Access; stop and check before submitting anything.
 
 ### 3. Test on your Mac first
 ```bash
@@ -70,9 +71,8 @@ git remote add origin https://github.com/YOUR_USERNAME/ig-comment-dm.git && git 
 ```
 3. Repo → Settings → Secrets and variables → Actions → **New repository secret**:
    - `IG_ACCESS_TOKEN`: your Instagram token.
-   - `GH_PAT`: a fine-grained GitHub token (github.com/settings/personal-access-tokens) for **this repo only**, with **Secrets: Read and write**. The weekly job uses it to save the renewed Instagram token.
+   - (`GH_PAT` is only needed if you switch to the older Instagram Login with `IG_LOGIN=instagram`, whose 60-day tokens the refresh-token job renews. Not needed for Unified login.)
 4. Repo → Actions → **comment-dm → Run workflow** to test it. After that it runs every 5 minutes by itself.
-5. Run **refresh-token** once by hand to check that the renewal works.
 
 ---
 
@@ -99,11 +99,11 @@ Add a campaign in `config.json` (copy the ep 2 block), set `"active": true`, put
 - `state.json`: IDs of comments already answered (no usernames). Committed by the bot after each run.
 - `.github/workflows/comment-dm.yml`: runs every 5 minutes.
 - `.github/workflows/burst-10s` (`burst.yml`): checks every 10 seconds for up to 5.5 hours; start it by hand after posting.
-- `.github/workflows/refresh-token.yml`: renews the 60-day Instagram token every Monday.
+- `.github/workflows/refresh-token.yml`: manual only; renews a 60-day token if you use `IG_LOGIN=instagram`.
 - `tests/`: offline tests (`python3 -m unittest discover -s tests`).
 
 ## If something breaks
-- **"Invalid OAuth access token"**: the token expired. Generate a new one (step 2.4) and update the `IG_ACCESS_TOKEN` secret.
+- **"Invalid OAuth access token"**: the token stopped working (app removed, account moved). Generate a new one (step 2.6) and update the `IG_ACCESS_TOKEN` secret.
 - **DMs not sending, error about messaging**: check that "Allow access to messages" is on (step 1.2).
 - **"Reel not found"**: the URL in config.json doesn't match. Run `python3 ig_comment_dm.py media` and compare.
 - **The Actions tab stops running**: GitHub pauses scheduled jobs after 60 days with no repo activity. Push any change, or run it once by hand.
